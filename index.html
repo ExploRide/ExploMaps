@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ExploRide – Kopia Google My Maps</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p2cRbE1hEcFlC3+1rjkw7zKJbXY4eRb1r4v9fVp+lZU=" crossorigin=""/>
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: Arial, sans-serif; }
+    #map { height: 100%; width: 100%; }
+    #sidebar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 300px;
+      height: 100%;
+      background: #fff;
+      z-index: 1000;
+      overflow-y: auto;
+      border-right: 1px solid #ccc;
+    }
+    #map-container {
+      position: absolute;
+      top: 0;
+      left: 300px;
+      right: 0;
+      bottom: 0;
+    }
+    .sidebar-header {
+      font-weight: bold;
+      padding: 1rem;
+      background: #f0f0f0;
+      border-bottom: 1px solid #ccc;
+    }
+    .pin-list {
+      padding: 0.5rem 1rem;
+    }
+    .pin-item {
+      margin-bottom: 0.5rem;
+      cursor: pointer;
+    }
+    .popup-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .popup-form input,
+    .popup-form textarea {
+      width: 100%;
+      padding: 4px;
+      font-size: 14px;
+    }
+    .popup-form button {
+      padding: 4px 8px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <div class="sidebar-header">Warstwy i pinezki</div>
+    <div class="pin-list" id="pinList">
+      <!-- Pineski pojawią się tutaj -->
+    </div>
+  </div>
+  <div id="map-container">
+    <div id="map"></div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-o9N1jYh+1zFq9vsCR1ZNRP40XEzZ1OzZKn3Wsy3GxYQ=" crossorigin=""></script>
+
+  <script>
+    // Konfiguracja Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyBj8xPy81NaxFwHmBL3ni_UVjYKFZflyv0",
+      authDomain: "exploridemap.firebaseapp.com",
+      projectId: "exploridemap",
+      storageBucket: "exploridemap.firebasestorage.app",
+      messagingSenderId: "1074659589759",
+      appId: "1:1074659589759:web:f8bdffc15d41d47ac8094a"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    const map = L.map('map').setView([51.9194, 19.1451], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    function renderPin(pin) {
+      const marker = L.marker([pin.lat, pin.lng]).addTo(map)
+        .bindPopup(`<b>${pin.name}</b><br>${pin.description}`);
+
+      const item = document.createElement('div');
+      item.className = 'pin-item';
+      item.textContent = pin.name;
+      item.onclick = () => {
+        map.setView([pin.lat, pin.lng], 14);
+        marker.openPopup();
+      };
+      document.getElementById('pinList').appendChild(item);
+    }
+
+    db.collection("pinezki").get().then((querySnapshot) => {
+      querySnapshot.forEach((doc) => {
+        const pin = doc.data();
+        renderPin(pin);
+      });
+    });
+
+    // Dodawanie nowej pinezki po kliknięciu na mapę
+    map.on('click', function(e) {
+      const latlng = e.latlng;
+      const formHtml = `
+        <div class="popup-form">
+          <input id="pinName" placeholder="Nazwa" />
+          <textarea id="pinDesc" placeholder="Opis"></textarea>
+          <button onclick="savePin(${latlng.lat}, ${latlng.lng})">Dodaj</button>
+        </div>
+      `;
+      L.popup()
+        .setLatLng(latlng)
+        .setContent(formHtml)
+        .openOn(map);
+    });
+
+    window.savePin = function(lat, lng) {
+      const name = document.getElementById('pinName').value;
+      const description = document.getElementById('pinDesc').value;
+      if (!name.trim()) return;
+
+      const newPin = { name, description, lat, lng };
+
+      db.collection("pinezki").add(newPin).then(() => {
+        map.closePopup();
+        renderPin(newPin);
+      });
+    };
+  </script>
+</body>
+</html>

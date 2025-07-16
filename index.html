@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ExploRide – Kopia Google My Maps</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p2cRbE1hEcFlC3+1rjkw7zKJbXY4eRb1r4v9fVp+lZU=" crossorigin=""/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
   <style>
     body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: Arial, sans-serif; }
     #map { height: 100%; width: 100%; }
@@ -31,6 +31,11 @@
       padding: 1rem;
       background: #f0f0f0;
       border-bottom: 1px solid #ccc;
+    }
+    .layer-title {
+      font-weight: bold;
+      margin-top: 1rem;
+      margin-bottom: 0.5rem;
     }
     .pin-list {
       padding: 0.5rem 1rem;
@@ -61,7 +66,7 @@
   <div id="sidebar">
     <div class="sidebar-header">Warstwy i pinezki</div>
     <div class="pin-list" id="pinList">
-      <!-- Pineski pojawią się tutaj -->
+      <!-- Warstwy i pineski -->
     </div>
   </div>
   <div id="map-container">
@@ -70,10 +75,9 @@
 
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-o9N1jYh+1zFq9vsCR1ZNRP40XEzZ1OzZKn3Wsy3GxYQ=" crossorigin=""></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
   <script>
-    // Konfiguracja Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyBj8xPy81NaxFwHmBL3ni_UVjYKFZflyv0",
       authDomain: "exploridemap.firebaseapp.com",
@@ -91,54 +95,109 @@
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
-    function renderPin(pin) {
-      const marker = L.marker([pin.lat, pin.lng]).addTo(map)
-        .bindPopup(`<b>${pin.name}</b><br>${pin.description}`);
+    const warstwy = {}; // Grupowanie pinezek wg warstw
 
-      const item = document.createElement('div');
-      item.className = 'pin-item';
-      item.textContent = pin.name;
-      item.onclick = () => {
-        map.setView([pin.lat, pin.lng], 14);
-        marker.openPopup();
-      };
-      document.getElementById('pinList').appendChild(item);
+    function renderPin(pin, id) {
+      const marker = L.marker([pin.lat, pin.lng]).addTo(map);
+
+      function showDisplayPopup() {
+        marker.bindPopup(`
+          <b>${pin.nazwa}</b><br>${pin.opis}<br><br>
+          <button onclick="editPin('${id}', ${pin.lat}, ${pin.lng}, '${pin.nazwa.replace(/'/g, "&#39;")}', '${pin.opis.replace(/'/g, "&#39;")}')">✏️ Edytuj</button>
+          <button onclick="deletePin('${id}')">🗑️ Usuń</button>
+        `).openPopup();
+      }
+
+      showDisplayPopup();
+
+      if (!warstwy[pin.warstwa]) warstwy[pin.warstwa] = [];
+      warstwy[pin.warstwa].push({ name: pin.nazwa, lat: pin.lat, lng: pin.lng, marker, id });
+    }
+
+    function renderSidebar() {
+      const pinList = document.getElementById('pinList');
+      pinList.innerHTML = '';
+      for (const warstwa in warstwy) {
+        const title = document.createElement('div');
+        title.className = 'layer-title';
+        title.textContent = warstwa;
+        pinList.appendChild(title);
+
+        warstwy[warstwa].forEach(pin => {
+          const item = document.createElement('div');
+          item.className = 'pin-item';
+          item.textContent = pin.name;
+          item.onclick = () => {
+            map.setView([pin.lat, pin.lng], 14);
+            pin.marker.openPopup();
+          };
+          pinList.appendChild(item);
+        });
+      }
     }
 
     db.collection("pinezki").get().then((querySnapshot) => {
       querySnapshot.forEach((doc) => {
         const pin = doc.data();
-        renderPin(pin);
+        if (
+          typeof pin.lat === 'number' &&
+          typeof pin.lng === 'number' &&
+          typeof pin.nazwa === 'string' &&
+          typeof pin.warstwa === 'string'
+        ) {
+          renderPin(pin, doc.id);
+        } else {
+          console.warn('Pominięto niepoprawną pinezkę:', doc.id, pin);
+        }
       });
+      renderSidebar();
     });
 
-    // Dodawanie nowej pinezki po kliknięciu na mapę
     map.on('click', function(e) {
       const latlng = e.latlng;
       const formHtml = `
         <div class="popup-form">
           <input id="pinName" placeholder="Nazwa" />
           <textarea id="pinDesc" placeholder="Opis"></textarea>
+          <input id="pinLayer" placeholder="Warstwa" />
           <button onclick="savePin(${latlng.lat}, ${latlng.lng})">Dodaj</button>
         </div>
       `;
-      L.popup()
-        .setLatLng(latlng)
-        .setContent(formHtml)
-        .openOn(map);
+      L.popup().setLatLng(latlng).setContent(formHtml).openOn(map);
     });
 
     window.savePin = function(lat, lng) {
-      const name = document.getElementById('pinName').value;
-      const description = document.getElementById('pinDesc').value;
-      if (!name.trim()) return;
+      const nazwa = document.getElementById('pinName').value;
+      const opis = document.getElementById('pinDesc').value;
+      const warstwa = document.getElementById('pinLayer').value;
+      if (!nazwa.trim() || !warstwa.trim()) return;
 
-      const newPin = { name, description, lat, lng };
+      const newPin = { nazwa, opis, lat, lng, warstwa };
+      db.collection("pinezki").add(newPin).then(() => location.reload());
+    };
 
-      db.collection("pinezki").add(newPin).then(() => {
-        map.closePopup();
-        renderPin(newPin);
-      });
+    window.editPin = function(id, lat, lng, currentName, currentDesc) {
+      const formHtml = `
+        <div class="popup-form">
+          <input id="editPinName" value="${currentName}" />
+          <textarea id="editPinDesc">${currentDesc}</textarea>
+          <button onclick="updatePin('${id}')">Zapisz</button>
+          <button onclick="map.closePopup()">Anuluj</button>
+        </div>
+      `;
+      L.popup().setLatLng([lat, lng]).setContent(formHtml).openOn(map);
+    };
+
+    window.updatePin = function(id) {
+      const nazwa = document.getElementById('editPinName').value;
+      const opis = document.getElementById('editPinDesc').value;
+      db.collection("pinezki").doc(id).update({ nazwa, opis }).then(() => location.reload());
+    };
+
+    window.deletePin = function(id) {
+      if (confirm("Na pewno chcesz usunąć tę pinezkę?")) {
+        db.collection("pinezki").doc(id).delete().then(() => location.reload());
+      }
     };
   </script>
 </body>
